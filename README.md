@@ -21,6 +21,8 @@ The architecture consists of the following components:
 - Access to the Cricbuzz API
 - GCP services enabled: Cloud Composer, Cloud Storage, Cloud Functions, Dataflow, BigQuery, Looker
 
+<img width="1438" alt="looker" src="https://github.com/user-attachments/assets/39f643d9-8f5b-405e-a654-2c791eb1f1fb">
+
 ## Installation
 1. **Set Up GCP Project**: Create a new GCP project and enable the required APIs.
 2. **Cloud Composer**: Set up a Cloud Composer environment for workflow orchestration.
