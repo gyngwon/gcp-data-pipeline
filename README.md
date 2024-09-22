@@ -4,6 +4,8 @@
 This project implements a data pipeline to collect, process, and visualize cricket statistics using Google Cloud Platform (GCP) services. The data is fetched from the Cricbuzz API, processed using Dataflow, and visualized in Looker.
 
 ## Architecture
+<img width="634" alt="architecture" src="https://github.com/user-attachments/assets/b4249d29-6311-465b-a512-632e75f79aee">
+
 The architecture consists of the following components:
 
 1. **Data Collection**: Fetches cricket statistics from the Cricbuzz API using Python.
