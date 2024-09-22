@@ -1,4 +1,4 @@
-# GCP Project: BigQuery - Cricket Statistics Pipeline
+# GCP Project: Cricket Statistics Pipeline
 
 ## Overview
 This project implements a data pipeline to collect, process, and visualize cricket statistics using Google Cloud Platform (GCP) services. The data is fetched from the Cricbuzz API, processed using Dataflow, and visualized in Looker.
@@ -32,20 +32,3 @@ The architecture consists of the following components:
 1. **Run the Data Pipeline**: Trigger the data collection via Cloud Composer.
 2. **View Processed Data**: Check the BigQuery dataset for the processed cricket statistics.
 3. **Visualize Data**: Use Looker to create dashboards and explore the data.
-
-## Code Snippet
-
-Here’s an example of how to fetch data from the Cricbuzz API and store it as a CSV file:
-
-```python
-import requests
-import pandas as pd
-
-# Fetch data from Cricbuzz API
-url = 'https://example.com/api/cricket'  # Replace with actual Cricbuzz API URL
-response = requests.get(url)
-data = response.json()
-
-# Convert to DataFrame and save as CSV
-df = pd.DataFrame(data)
-df.to_csv('cricket_stats.csv', index=False)
