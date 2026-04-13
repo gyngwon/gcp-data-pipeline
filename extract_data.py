@@ -2,6 +2,7 @@ import requests
 import csv
 import json
 import logging
+import argparse
 from google.cloud import storage
 
 logging.basicConfig(level=logging.INFO)
@@ -13,6 +14,9 @@ with open('config.json') as config_file:
 url = config['api']['url']
 querystring = config['api']['query_params']
 headers = config['api']['headers']
+csv_filename = config['gcs']['csv_filename']
+bucket_name = config['gcs']['bucket_name']
+field_names = ['rank', 'name', 'country']
 
 def fetch_data_from_api(url: str, headers: dict, params: dict) -> list:
     try:
@@ -59,19 +63,28 @@ def upload_to_gcs(csv_filename: str, bucket_name: str) -> None:
         logger.error(f"Failed to upload to GCS: {e}")
         raise
 
-def main():
-    csv_filename = config['gcs']['csv_filename']
-    bucket_name = config['gcs']['bucket_name']
-    field_names = ['rank', 'name', 'country']
-
+# Each function below is independently callable from the DAG as a separate task
+def task_fetch_and_save():
     data = fetch_data_from_api(url, headers, querystring)
     if not data:
-        logger.warning("No data to process. Exiting.")
-        return
-
+        raise ValueError("No data fetched from API")
     write_to_csv(data, csv_filename, field_names)
+    logger.info("fetch_and_save task completed")
+
+def task_upload_to_gcs():
     upload_to_gcs(csv_filename, bucket_name)
-    logger.info("Pipeline completed successfully")
+    logger.info("upload_to_gcs task completed")
 
 if __name__ == "__main__":
-    main()
+    # Accepts a task argument so each step can be triggered individually from the DAG
+    parser = argparse.ArgumentParser()
+    parser.add_argument('task', choices=['fetch', 'upload', 'all'])
+    args = parser.parse_args()
+
+    if args.task == 'fetch':
+        task_fetch_and_save()
+    elif args.task == 'upload':
+        task_upload_to_gcs()
+    elif args.task == 'all':
+        task_fetch_and_save()
+        task_upload_to_gcs()
