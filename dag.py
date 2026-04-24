@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.bash import BashOperator
-from airflow.providers.google.cloud.sensors.bigquery import BigQueryTableExistenceSensor
+from airflow.providers.google.cloud.operators.bigquery import BigQueryInsertJobOperator
 
 default_args = {
     'owner': 'airflow',
@@ -15,44 +15,92 @@ default_args = {
 }
 
 SCRIPT_PATH = '/home/airflow/gcs/dags/scripts/extract_data.py'
+PROJECT_ID  = 'your-gcp-project-id'
+DATASET_ID  = 'your_dataset'
 
 with DAG(
     dag_id='fetch_cricket_stats',
     default_args=default_args,
-    description='Cricket stats pipeline: fetch → GCS → Dataflow → BigQuery',
+    description='Cricket stats pipeline: API → BigQuery raw → SQL transforms → analytics tables',
     schedule_interval='@daily',
     catchup=False,
     tags=['cricket', 'gcp'],
 ) as dag:
 
-    # Task 1: Fetch data from API and save as CSV
-    fetch_data = BashOperator(
-        task_id='fetch_data',
+    # Task 1: Fetch data from API and load directly into BigQuery raw table
+    fetch_and_load = BashOperator(
+        task_id='fetch_and_load',
         bash_command=f'python {SCRIPT_PATH} fetch',
     )
 
-    # Task 2: Upload CSV file to GCS
-    upload_to_gcs = BashOperator(
-        task_id='upload_to_gcs',
-        bash_command=f'python {SCRIPT_PATH} upload',
+    # Task 2: Build country-level aggregation table
+    transform_country = BigQueryInsertJobOperator(
+        task_id='transform_country_performance',
+        configuration={
+            "query": {
+                "query": f"""
+                    CREATE OR REPLACE TABLE `{PROJECT_ID}.{DATASET_ID}.country_performance` AS
+                    SELECT
+                        country,
+                        COUNT(*) AS total_players,
+                        AVG(CAST(rank AS INT64)) AS avg_rank
+                    FROM `{PROJECT_ID}.{DATASET_ID}.raw_cricket`
+                    GROUP BY country
+                """,
+                "useLegacySql": False,
+            }
+        },
+        gcp_conn_id='google_cloud_default',
     )
 
-    # Task 3: Wait for BigQuery table to be loaded
-    # Cloud Functions automatically triggers Dataflow on GCS upload event
-    wait_for_bq_load = BigQueryTableExistenceSensor(
-        task_id='wait_for_bq_load',
-        project_id='your-gcp-project-id',
-        dataset_id='your_dataset',
-        table_id='icc_odi_batsmen_ranking',
-        timeout=600,        # wait up to 10 minutes
-        poke_interval=30,   # check every 30 seconds
+    # Task 3: Build top 10 players table
+    transform_top_players = BigQueryInsertJobOperator(
+        task_id='transform_top_players',
+        configuration={
+            "query": {
+                "query": f"""
+                    CREATE OR REPLACE TABLE `{PROJECT_ID}.{DATASET_ID}.top_players` AS
+                    SELECT
+                        name,
+                        country,
+                        CAST(rank AS INT64) AS rank
+                    FROM `{PROJECT_ID}.{DATASET_ID}.raw_cricket`
+                    WHERE CAST(rank AS INT64) <= 10
+                """,
+                "useLegacySql": False,
+            }
+        },
+        gcp_conn_id='google_cloud_default',
     )
 
-    # Task 4: Log pipeline completion
+    # Task 4: Build rank distribution table
+    transform_rank_dist = BigQueryInsertJobOperator(
+        task_id='transform_rank_distribution',
+        configuration={
+            "query": {
+                "query": f"""
+                    CREATE OR REPLACE TABLE `{PROJECT_ID}.{DATASET_ID}.rank_distribution` AS
+                    SELECT
+                        CASE
+                            WHEN CAST(rank AS INT64) <= 5  THEN 'Top 5'
+                            WHEN CAST(rank AS INT64) <= 10 THEN 'Top 10'
+                            ELSE 'Others'
+                        END AS rank_group,
+                        COUNT(*) AS count
+                    FROM `{PROJECT_ID}.{DATASET_ID}.raw_cricket`
+                    GROUP BY rank_group
+                """,
+                "useLegacySql": False,
+            }
+        },
+        gcp_conn_id='google_cloud_default',
+    )
+
+    # Task 5: Log pipeline completion
     pipeline_complete = BashOperator(
         task_id='pipeline_complete',
         bash_command='echo "Pipeline completed at $(date)"',
     )
 
-    # Define task execution order
-    fetch_data >> upload_to_gcs >> wait_for_bq_load >> pipeline_complete
+    # Transform tasks run in parallel after raw load completes
+    fetch_and_load >> [transform_country, transform_top_players, transform_rank_dist] >> pipeline_complete
